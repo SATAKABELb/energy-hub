@@ -947,3 +947,16 @@ function Hub:Destroy()
 end
 
 print("Energy Hub загружен! M – меню. Размер персонажа работает через HipHeight.")
+
+-- Коррекция скорости ходьбы (авто)
+local walkCorrectionConnection = RunService.Heartbeat:Connect(function()
+    if walk then -- если включено? Хотя коррекция должна работать всегда, если задано значение
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum and hum.WalkSpeed ~= walk then
+                hum.WalkSpeed = walk
+            end
+        end
+    end
+end)
