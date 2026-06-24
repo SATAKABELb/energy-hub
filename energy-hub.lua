@@ -1,5 +1,5 @@
 --[[
-    ⚡ Energy Hub (исправленное изменение размера с HipHeight)
+    ⚡ Energy Hub (финальная, с HipHeight)
 ]]
 
 local Players = game:GetService("Players")
@@ -17,7 +17,6 @@ for _,g in ipairs(playerGui:GetChildren()) do if g:IsA("ScreenGui") and g.Name==
 
 local Hub = {} _G.HubScript = Hub _G.HubObjects = {}
 
--- Конфиг
 local cfgFile = "hub_config.json"
 local cfg = {}
 local function loadCfg()
@@ -45,7 +44,7 @@ local cs = isMobile and 28 or 22
 local sh = isMobile and 65 or 50
 
 -- ================= ФУНКЦИЯ ИЗМЕНЕНИЯ РАЗМЕРА (С HipHeight) =================
-local originalData = {} -- key = character, value = {parts = {}, hipHeight = 0}
+local originalData = {}
 
 local function applyScale(character, newScale)
     if not character then return end
@@ -53,7 +52,6 @@ local function applyScale(character, newScale)
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoid or not rootPart then return end
 
-    -- Если масштаб == 1, сбрасываем до исходного
     if newScale == 1 then
         local data = originalData[character]
         if data then
@@ -69,7 +67,6 @@ local function applyScale(character, newScale)
         return
     end
 
-    -- Сохраняем исходные данные при первом применении
     if not originalData[character] then
         local data = {parts = {}, origCFrames = {}, hipHeight = humanoid.HipHeight}
         for _, part in ipairs(character:GetDescendants()) do
@@ -84,12 +81,9 @@ local function applyScale(character, newScale)
     local data = originalData[character]
     local rootPos = rootPart.Position
 
-    -- Применяем масштаб
     for part, origSize in pairs(data.parts) do
         if part and part.Parent then
-            -- Масштабируем размер
             part.Size = origSize * newScale
-            -- Масштабируем позицию относительно корня
             local origCFrame = data.origCFrames[part]
             if origCFrame then
                 local relPos = origCFrame.Position - rootPos
@@ -100,16 +94,7 @@ local function applyScale(character, newScale)
         end
     end
 
-    -- Корректируем HipHeight, чтобы персонаж стоял на земле
     humanoid.HipHeight = data.hipHeight * newScale
-end
-
--- Применяем сохранённый масштаб при загрузке
-local function applySavedScale(character)
-    if character and charScale and charScale ~= 1 then
-        task.wait(0.1)
-        applyScale(character, charScale)
-    end
 end
 
 -- ================= GUI =================
@@ -122,7 +107,6 @@ ScreenGui.IgnoreGuiInset = true
 Hub.ScreenGui = ScreenGui
 table.insert(_G.HubObjects, ScreenGui)
 
--- Уведомление
 local notif = Instance.new("TextLabel")
 notif.Size = UDim2.new(0,280*scale,0,40*scale)
 notif.Position = UDim2.new(1,-300*scale,0,20*scale)
@@ -148,7 +132,6 @@ local function showNotif(d)
 end
 coroutine.wrap(function() showNotif(5) end)()
 
--- Главное окно
 local mainW = isMobile and 500 or 440
 local mainH = isMobile and 600 or 520
 local MainFrame = Instance.new("Frame")
@@ -176,7 +159,6 @@ Title.ZIndex = 1000
 Title.Parent = MainFrame
 table.insert(_G.HubObjects, Title)
 
--- Перетаскивание
 local isDragging = false
 local dragOffset = Vector2.new(0,0)
 MainFrame.InputBegan:Connect(function(i)
@@ -201,7 +183,6 @@ local dragConn = UserInputService.InputChanged:Connect(function(i)
 end)
 table.insert(_G.HubObjects, dragConn)
 
--- Вкладки
 local tabFrame = Instance.new("Frame")
 tabFrame.Size = UDim2.new(1,0,0,36*scale)
 tabFrame.Position = UDim2.new(0,0,0,40*scale)
@@ -257,7 +238,7 @@ end
 UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateMainCanvas)
 coroutine.wrap(updateMainCanvas)()
 
--- ================= СИСТЕМА КЛАВИШ =================
+-- Система клавиш
 local hotkeyFunctions = {}
 local functionStates = {}
 local waitingForKey = nil
@@ -338,7 +319,7 @@ local inputConnection = UserInputService.InputBegan:Connect(function(input, game
 end)
 table.insert(_G.HubObjects, inputConnection)
 
--- ================= ВИДЖЕТЫ =================
+-- Виджеты
 local function createToggle(text, funcName, defaultKey, callback)
     local state = functionStates[funcName] or false
     functionStates[funcName] = state
@@ -596,7 +577,7 @@ local function createSlider(text, min, max, default, callback)
     return frame
 end
 
--- ================= КОНТЕЙНЕРЫ ВКЛАДОК =================
+-- Контейнеры вкладок
 local function createTabContainer()
     local cont = Instance.new("Frame")
     cont.Size = UDim2.new(1,0,1,0)
@@ -647,7 +628,7 @@ tabMain.MouseButton1Click:Connect(function() showTab("Основные") end)
 tabBattle.MouseButton1Click:Connect(function() showTab("Боевые") end)
 tabPlayers.MouseButton1Click:Connect(function() showTab("Игроки") end)
 
--- ================= ЗАПОЛНЕНИЕ ВКЛАДОК =================
+-- Заполнение
 local function addMain(item) item.Parent = contMain end
 local function addBattle(item) item.Parent = contBattle end
 
@@ -660,8 +641,6 @@ addMain(createSlider("Скорость ходьбы", 0, 1000, walk, function(v)
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walk end
 end))
-
--- ИЗМЕНЕНИЕ РАЗМЕРА (ИСПРАВЛЕННО)
 addMain(createSlider("Размер персонажа", 0.5, 3.0, charScale, function(v)
     charScale = v
     cfg.scale = v
@@ -772,11 +751,10 @@ updatePlayers()
 Players.PlayerAdded:Connect(updatePlayers)
 Players.PlayerRemoving:Connect(updatePlayers)
 
--- ================= ЛОГИКА ФУНКЦИЙ =================
+-- Логика
 local flyBV = nil
 local espObjs = {}
 
--- Полёт
 local flyConn = RunService.Heartbeat:Connect(function()
     if fly then
         local char = LocalPlayer.Character
@@ -816,7 +794,6 @@ local flyConn = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, flyConn)
 
--- Ноклип
 local noclipConn = RunService.Heartbeat:Connect(function()
     if noclip then
         local char = LocalPlayer.Character
@@ -829,7 +806,6 @@ local noclipConn = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, noclipConn)
 
--- Скорость ходьбы
 local function applyWalkSpeed()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walk end
@@ -844,7 +820,6 @@ end)
 table.insert(_G.HubObjects, charAddedWalk)
 applyWalkSpeed()
 
--- Аимбот
 local aimConn = RunService.Heartbeat:Connect(function()
     if aim then
         local cam = workspace.CurrentCamera
@@ -880,7 +855,6 @@ local aimConn = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, aimConn)
 
--- ESP
 local espConn = RunService.Heartbeat:Connect(function()
     if esp then
         for _, player in ipairs(Players:GetPlayers()) do
@@ -922,7 +896,6 @@ local espConn = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, espConn)
 
--- God Mode
 local godConn = RunService.Heartbeat:Connect(function()
     if god then
         local char = LocalPlayer.Character
@@ -945,7 +918,6 @@ local godCharAdded = LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 table.insert(_G.HubObjects, godCharAdded)
 
--- Применяем масштаб при загрузке
 task.wait(0.5)
 if charScale ~= 1 then
     local char = LocalPlayer.Character
@@ -954,14 +926,12 @@ if charScale ~= 1 then
     end
 end
 
--- Применяем сохранённые состояния
 for fn, st in pairs(functionStates) do
     if st then toggleFunctionByName(fn) end
 end
 
 showTab("Основные")
 
--- ================= МЕТОД УНИЧТОЖЕНИЯ =================
 function Hub:Destroy()
     if _G.HubObjects then
         for _, obj in ipairs(_G.HubObjects) do
@@ -976,4 +946,4 @@ function Hub:Destroy()
     _G.HubScript = nil
 end
 
-print("Energy Hub загружен! M – меню. Размер персонажа корректно работает с HipHeight.")
+print("Energy Hub загружен! M – меню. Размер персонажа работает через HipHeight.")
