@@ -1,9 +1,10 @@
 --[[
-    ⚡ Energy Hub (полная версия с вкладками)
+    ⚡ Energy Hub (с изменением размера персонажа)
     Вкладки: Основные / Боевые / Игроки
     Автоопределение телефона, увеличенные элементы.
     Горячие клавиши: назначение и отмена Escape.
     Сохранение настроек и позиции окна.
+    + Слайдер изменения размера персонажа (0.5 - 3.0)
 ]]
 
 local Players = game:GetService("Players")
@@ -77,6 +78,7 @@ if not loadConfig() then
         walkSpeed = 16,
         aimbotEnabled = false, espEnabled = false,
         invisibleEnabled = false, godModeEnabled = false,
+        playerScale = 1.0,
         pos = {x = 0.5, y = 0.5},
     }
 end
@@ -90,7 +92,40 @@ local aimbotEnabled = config.aimbotEnabled or false
 local espEnabled = config.espEnabled or false
 local invisibleEnabled = config.invisibleEnabled or false
 local godModeEnabled = config.godModeEnabled or false
+local playerScale = config.playerScale or 1.0
 local savedPos = config.pos or {x = 0.5, y = 0.5}
+
+-- ================= ФУНКЦИЯ ИЗМЕНЕНИЯ РАЗМЕРА ПЕРСОНАЖА =================
+local function applyPlayerScale(scaleValue)
+    playerScale = scaleValue
+    config.playerScale = scaleValue
+    saveConfig()
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.Size = Vector3.new(2, 1.5, 1) * scaleValue
+        end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Name ~= "Head" then
+                part.Size = part.Size * scaleValue / (char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Size.X / 2 or 1)
+                -- Более просто: просто масштабируем все части
+                part.Size = Vector3.new(2, 1, 1) * scaleValue
+            end
+        end
+        -- Масштабируем голову отдельно
+        local head = char:FindFirstChild("Head")
+        if head then
+            head.Size = Vector3.new(2, 2, 2) * scaleValue
+        end
+        -- Для аксессуаров (если есть)
+        for _, acc in ipairs(char:GetChildren()) do
+            if acc:IsA("Accessory") and acc:FindFirstChild("Handle") then
+                acc.Handle.Size = acc.Handle.Size * scaleValue
+            end
+        end
+    end
+end
 
 -- ================= СОЗДАНИЕ GUI =================
 local ScreenGui = Instance.new("ScreenGui")
@@ -130,7 +165,7 @@ coroutine.wrap(function() showNotification(5) end)()
 
 -- Главное окно
 local mainWidth = isMobile and 500 or 440
-local mainHeight = isMobile and 580 or 500
+local mainHeight = isMobile and 620 or 540
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, mainWidth, 0, mainHeight)
 MainFrame.Position = UDim2.new(savedPos.x, -mainWidth/2, savedPos.y, -mainHeight/2)
@@ -539,7 +574,7 @@ local function createSlider(labelText, min, max, default, callback)
         local percent = (value - min) / (max - min)
         fill.Size = UDim2.new(percent,0,1,0)
         handle.Position = UDim2.new(percent, -circleSize/2, 0.5, -circleSize/2)
-        valueBox.Text = string.format("%.1f", value)
+        valueBox.Text = string.format("%.2f", value)
         callback(value)
         saveConfig()
     end
@@ -598,7 +633,6 @@ local function createTabContainer()
     end
     lay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateContSize)
     coroutine.wrap(updateContSize)()
-    -- Добавляем метку для идентификации вкладки
     local nameTag = Instance.new("StringValue")
     nameTag.Name = "TabName"
     nameTag.Parent = cont
@@ -632,7 +666,6 @@ tabBattle.MouseButton1Click:Connect(function() showTab("Боевые") end)
 tabPlayers.MouseButton1Click:Connect(function() showTab("Игроки") end)
 
 -- ================= ЗАПОЛНЕНИЕ ВКЛАДОК =================
--- Основные
 local function addToMain(item) item.Parent = contMain end
 addToMain(createToggleWithHotkey("Полёт", "Fly", Enum.KeyCode.P, function(state) flyEnabled = state end))
 addToMain(createSlider("Скорость полёта", 0, 1000, flySpeed, function(val) flySpeed = val end))
@@ -643,8 +676,11 @@ addToMain(createSlider("Скорость ходьбы", 0, 1000, walkSpeedValue,
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walkSpeedValue end
 end))
+-- НОВЫЙ СЛАЙДЕР ДЛЯ РАЗМЕРА ПЕРСОНАЖА
+addToMain(createSlider("Размер персонажа", 0.5, 3.0, playerScale, function(val)
+    applyPlayerScale(val)
+end))
 
--- Боевые
 local function addToBattle(item) item.Parent = contBattle end
 addToBattle(createToggleWithHotkey("Аимбот", "Aim", Enum.KeyCode.J, function(state) aimbotEnabled = state end))
 addToBattle(createToggleWithHotkey("ESP", "ESP", Enum.KeyCode.H, function(state) espEnabled = state end))
@@ -666,7 +702,6 @@ addToBattle(createToggleWithHotkey("God Mode", "God", Enum.KeyCode.U, function(s
     end
 end))
 
--- Игроки (список телепортов)
 local function updatePlayerList()
     for _, ch in ipairs(contPlayers:GetChildren()) do
         if ch:IsA("Frame") then ch:Destroy() end
@@ -752,7 +787,6 @@ table.insert(_G.HubObjects, playerRemovedConn)
 local flyBodyVelocity = nil
 local espObjects = {}
 
--- Полёт
 local flyConnection = RunService.Heartbeat:Connect(function()
     if flyEnabled then
         local char = LocalPlayer.Character
@@ -795,7 +829,6 @@ local flyConnection = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, flyConnection)
 
--- Ноклип
 local noclipConnection = RunService.Heartbeat:Connect(function()
     if noclipEnabled then
         local char = LocalPlayer.Character
@@ -808,7 +841,6 @@ local noclipConnection = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, noclipConnection)
 
--- Скорость ходьбы
 local function applyWalkSpeed()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walkSpeedValue end
@@ -817,7 +849,6 @@ local charAddedConn = LocalPlayer.CharacterAdded:Connect(applyWalkSpeed)
 table.insert(_G.HubObjects, charAddedConn)
 applyWalkSpeed()
 
--- Аимбот
 local aimbotConnection = RunService.Heartbeat:Connect(function()
     if aimbotEnabled then
         local camera = workspace.CurrentCamera
@@ -854,7 +885,6 @@ local aimbotConnection = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, aimbotConnection)
 
--- ESP
 local espConnection = RunService.Heartbeat:Connect(function()
     if espEnabled then
         for _, player in ipairs(Players:GetPlayers()) do
@@ -896,7 +926,6 @@ local espConnection = RunService.Heartbeat:Connect(function()
 end)
 table.insert(_G.HubObjects, espConnection)
 
--- God Mode
 local godModeConnection = RunService.Heartbeat:Connect(function()
     if godModeEnabled then
         local char = LocalPlayer.Character
@@ -913,12 +942,23 @@ local godCharAddedConn = LocalPlayer.CharacterAdded:Connect(function(char)
         char.Humanoid.Health = char.Humanoid.MaxHealth
     end
     applyWalkSpeed()
+    applyPlayerScale(playerScale) -- применяем размер при появлении персонажа
 end)
 table.insert(_G.HubObjects, godCharAddedConn)
 
 -- ================= ПРИМЕНЕНИЕ СОХРАНЁННЫХ СОСТОЯНИЙ =================
 for funcName, state in pairs(functionStates) do
     if state then toggleFunctionByName(funcName) end
+end
+
+-- Применяем размер персонажа при загрузке
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    applyPlayerScale(playerScale)
+end)
+if LocalPlayer.Character then
+    task.wait(0.5)
+    applyPlayerScale(playerScale)
 end
 
 showTab("Основные")
