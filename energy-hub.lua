@@ -1,10 +1,5 @@
 --[[
-    ⚡ Energy Hub (с изменением размера персонажа)
-    Вкладки: Основные / Боевые / Игроки
-    Автоопределение телефона, увеличенные элементы.
-    Горячие клавиши: назначение и отмена Escape.
-    Сохранение настроек и позиции окна.
-    + Слайдер изменения размера персонажа (0.5 - 3.0)
+    ⚡ Energy Hub (исправленное изменение размера с HipHeight)
 ]]
 
 local Players = game:GetService("Players")
@@ -15,119 +10,109 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 
--- ================= УНИЧТОЖЕНИЕ СТАРЫХ КОПИЙ =================
-if _G.HubScript then
-    _G.HubScript:Destroy()
-    _G.HubScript = nil
-end
-if _G.HubObjects then
-    for _, obj in ipairs(_G.HubObjects) do
-        pcall(function() 
-            if obj:IsA("RBXScriptConnection") then obj:Disconnect() 
-            else obj:Destroy() end 
-        end)
-    end
-    _G.HubObjects = nil
-end
-for _, gui in ipairs(playerGui:GetChildren()) do
-    if gui:IsA("ScreenGui") and gui.Name == "HubGUI" then
-        gui:Destroy()
-    end
-end
+-- Удаление старых копий
+if _G.HubScript then _G.HubScript:Destroy() _G.HubScript=nil end
+if _G.HubObjects then for _,o in ipairs(_G.HubObjects) do pcall(function() if o:IsA("RBXScriptConnection") then o:Disconnect() else o:Destroy() end end) end _G.HubObjects=nil end
+for _,g in ipairs(playerGui:GetChildren()) do if g:IsA("ScreenGui") and g.Name=="HubGUI" then g:Destroy() end end
 
-local Hub = {}
-_G.HubScript = Hub
-_G.HubObjects = {}
+local Hub = {} _G.HubScript = Hub _G.HubObjects = {}
 
--- ================= ОПРЕДЕЛЕНИЕ ПЛАТФОРМЫ =================
+-- Конфиг
+local cfgFile = "hub_config.json"
+local cfg = {}
+local function loadCfg()
+    if writefile then local s,d=pcall(readfile,cfgFile) if s and d then local dec=HttpService:JSONDecode(d) if dec then cfg=dec return true end end end return false end
+local function saveCfg() if writefile then pcall(function() writefile(cfgFile, HttpService:JSONEncode(cfg)) end) end end
+if not loadCfg() then cfg={fly=false,flySpd=20,jump=false,noclip=false,walk=16,aim=false,esp=false,inv=false,god=false,scale=1,pos={x=0.5,y=0.5}} end
+local fly=cfg.fly or false
+local flySpd=cfg.flySpd or 20
+local jump=cfg.jump or false
+local noclip=cfg.noclip or false
+local walk=cfg.walk or 16
+local aim=cfg.aim or false
+local esp=cfg.esp or false
+local inv=cfg.inv or false
+local god=cfg.god or false
+local charScale=cfg.scale or 1
+local savedPos=cfg.pos or {x=0.5,y=0.5}
+
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local scale = isMobile and 1.3 or 1.0
-local itemHeight = isMobile and 65 or 50
-local toggleSize = isMobile and 56 or 46
-local toggleHeight = isMobile and 32 or 26
-local circleSize = isMobile and 28 or 22
-local sliderHeight = isMobile and 65 or 50
-local buttonHeight = isMobile and 32 or 24
+local ih = isMobile and 65 or 50
+local tw = isMobile and 56 or 46
+local th = isMobile and 32 or 26
+local cs = isMobile and 28 or 22
+local sh = isMobile and 65 or 50
 
--- ================= СИСТЕМА СОХРАНЕНИЯ =================
-local configFileName = "hub_config.json"
-local config = {}
+-- ================= ФУНКЦИЯ ИЗМЕНЕНИЯ РАЗМЕРА (С HipHeight) =================
+local originalData = {} -- key = character, value = {parts = {}, hipHeight = 0}
 
-local function loadConfig()
-    if writefile then
-        local success, data = pcall(function() return readfile(configFileName) end)
-        if success and data then
-            local decoded = HttpService:JSONDecode(data)
-            if decoded then config = decoded return true end
+local function applyScale(character, newScale)
+    if not character then return end
+    local humanoid = character:FindFirstChild("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    -- Если масштаб == 1, сбрасываем до исходного
+    if newScale == 1 then
+        local data = originalData[character]
+        if data then
+            for part, origSize in pairs(data.parts) do
+                if part and part.Parent then
+                    part.Size = origSize
+                    part.CFrame = data.origCFrames[part]
+                end
+            end
+            humanoid.HipHeight = data.hipHeight
+            originalData[character] = nil
         end
+        return
     end
-    return false
-end
 
-local function saveConfig()
-    if writefile then
-        local data = HttpService:JSONEncode(config)
-        pcall(function() writefile(configFileName, data) end)
-    end
-end
-
-if not loadConfig() then
-    config = {
-        flyEnabled = false, flySpeed = 20,
-        infiniteJumpEnabled = false, noclipEnabled = false,
-        walkSpeed = 16,
-        aimbotEnabled = false, espEnabled = false,
-        invisibleEnabled = false, godModeEnabled = false,
-        playerScale = 1.0,
-        pos = {x = 0.5, y = 0.5},
-    }
-end
-
-local flyEnabled = config.flyEnabled or false
-local flySpeed = config.flySpeed or 20
-local infiniteJumpEnabled = config.infiniteJumpEnabled or false
-local noclipEnabled = config.noclipEnabled or false
-local walkSpeedValue = config.walkSpeed or 16
-local aimbotEnabled = config.aimbotEnabled or false
-local espEnabled = config.espEnabled or false
-local invisibleEnabled = config.invisibleEnabled or false
-local godModeEnabled = config.godModeEnabled or false
-local playerScale = config.playerScale or 1.0
-local savedPos = config.pos or {x = 0.5, y = 0.5}
-
--- ================= ФУНКЦИЯ ИЗМЕНЕНИЯ РАЗМЕРА ПЕРСОНАЖА =================
-local function applyPlayerScale(scaleValue)
-    playerScale = scaleValue
-    config.playerScale = scaleValue
-    saveConfig()
-    local char = LocalPlayer.Character
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.Size = Vector3.new(2, 1.5, 1) * scaleValue
-        end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Name ~= "Head" then
-                part.Size = part.Size * scaleValue / (char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Size.X / 2 or 1)
-                -- Более просто: просто масштабируем все части
-                part.Size = Vector3.new(2, 1, 1) * scaleValue
+    -- Сохраняем исходные данные при первом применении
+    if not originalData[character] then
+        local data = {parts = {}, origCFrames = {}, hipHeight = humanoid.HipHeight}
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= rootPart then
+                data.parts[part] = part.Size
+                data.origCFrames[part] = part.CFrame
             end
         end
-        -- Масштабируем голову отдельно
-        local head = char:FindFirstChild("Head")
-        if head then
-            head.Size = Vector3.new(2, 2, 2) * scaleValue
-        end
-        -- Для аксессуаров (если есть)
-        for _, acc in ipairs(char:GetChildren()) do
-            if acc:IsA("Accessory") and acc:FindFirstChild("Handle") then
-                acc.Handle.Size = acc.Handle.Size * scaleValue
+        originalData[character] = data
+    end
+
+    local data = originalData[character]
+    local rootPos = rootPart.Position
+
+    -- Применяем масштаб
+    for part, origSize in pairs(data.parts) do
+        if part and part.Parent then
+            -- Масштабируем размер
+            part.Size = origSize * newScale
+            -- Масштабируем позицию относительно корня
+            local origCFrame = data.origCFrames[part]
+            if origCFrame then
+                local relPos = origCFrame.Position - rootPos
+                local newPos = rootPos + relPos * newScale
+                local newCFrame = CFrame.new(newPos) * (origCFrame - origCFrame.Position)
+                part.CFrame = newCFrame
             end
         end
     end
+
+    -- Корректируем HipHeight, чтобы персонаж стоял на земле
+    humanoid.HipHeight = data.hipHeight * newScale
 end
 
--- ================= СОЗДАНИЕ GUI =================
+-- Применяем сохранённый масштаб при загрузке
+local function applySavedScale(character)
+    if character and charScale and charScale ~= 1 then
+        task.wait(0.1)
+        applyScale(character, charScale)
+    end
+end
+
+-- ================= GUI =================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "HubGUI"
 ScreenGui.Parent = playerGui
@@ -138,50 +123,50 @@ Hub.ScreenGui = ScreenGui
 table.insert(_G.HubObjects, ScreenGui)
 
 -- Уведомление
-local notification = Instance.new("TextLabel")
-notification.Size = UDim2.new(0, 280 * scale, 0, 40 * scale)
-notification.Position = UDim2.new(1, -300 * scale, 0, 20 * scale)
-notification.BackgroundColor3 = Color3.fromRGB(20,20,20)
-notification.BackgroundTransparency = 1
-notification.TextColor3 = Color3.fromRGB(255,255,255)
-notification.Text = "Нажмите M для открытия/закрытия меню"
-notification.TextScaled = true
-notification.Font = Enum.Font.SourceSans
-notification.BorderSizePixel = 0
-notification.ZIndex = 999
-notification.Parent = ScreenGui
-table.insert(_G.HubObjects, notification)
-local notifCorner = Instance.new("UICorner")
-notifCorner.CornerRadius = UDim.new(0,8)
-notifCorner.Parent = notification
-table.insert(_G.HubObjects, notifCorner)
+local notif = Instance.new("TextLabel")
+notif.Size = UDim2.new(0,280*scale,0,40*scale)
+notif.Position = UDim2.new(1,-300*scale,0,20*scale)
+notif.BackgroundColor3 = Color3.fromRGB(20,20,20)
+notif.BackgroundTransparency = 1
+notif.TextColor3 = Color3.fromRGB(255,255,255)
+notif.Text = "Нажмите M для меню"
+notif.TextScaled = true
+notif.Font = Enum.Font.SourceSans
+notif.BorderSizePixel = 0
+notif.ZIndex = 999
+notif.Parent = ScreenGui
+table.insert(_G.HubObjects, notif)
+local nc = Instance.new("UICorner")
+nc.CornerRadius = UDim.new(0,8)
+nc.Parent = notif
+table.insert(_G.HubObjects, nc)
 
-local function showNotification(duration)
-    TweenService:Create(notification, TweenInfo.new(0.3), {BackgroundTransparency=0.3, TextTransparency=0}):Play()
-    task.wait(duration)
-    TweenService:Create(notification, TweenInfo.new(0.5), {BackgroundTransparency=1, TextTransparency=1}):Play()
+local function showNotif(d)
+    TweenService:Create(notif, TweenInfo.new(0.3), {BackgroundTransparency=0.3,TextTransparency=0}):Play()
+    task.wait(d)
+    TweenService:Create(notif, TweenInfo.new(0.5), {BackgroundTransparency=1,TextTransparency=1}):Play()
 end
-coroutine.wrap(function() showNotification(5) end)()
+coroutine.wrap(function() showNotif(5) end)()
 
 -- Главное окно
-local mainWidth = isMobile and 500 or 440
-local mainHeight = isMobile and 620 or 540
+local mainW = isMobile and 500 or 440
+local mainH = isMobile and 600 or 520
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, mainWidth, 0, mainHeight)
-MainFrame.Position = UDim2.new(savedPos.x, -mainWidth/2, savedPos.y, -mainHeight/2)
+MainFrame.Size = UDim2.new(0,mainW,0,mainH)
+MainFrame.Position = UDim2.new(savedPos.x, -mainW/2, savedPos.y, -mainH/2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.15
 MainFrame.BorderSizePixel = 0
 MainFrame.ZIndex = 999
 MainFrame.Parent = ScreenGui
 table.insert(_G.HubObjects, MainFrame)
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0,12)
-UICorner.Parent = MainFrame
-table.insert(_G.HubObjects, UICorner)
+local mc = Instance.new("UICorner")
+mc.CornerRadius = UDim.new(0,12)
+mc.Parent = MainFrame
+table.insert(_G.HubObjects, mc)
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1,0,0,40 * scale)
+Title.Size = UDim2.new(1,0,0,40*scale)
 Title.BackgroundTransparency = 1
 Title.Text = "⚡ Energy Hub"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
@@ -191,35 +176,35 @@ Title.ZIndex = 1000
 Title.Parent = MainFrame
 table.insert(_G.HubObjects, Title)
 
--- Перетаскивание с сохранением позиции
+-- Перетаскивание
 local isDragging = false
 local dragOffset = Vector2.new(0,0)
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+MainFrame.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
         isDragging = true
-        local framePos = MainFrame.AbsolutePosition
-        dragOffset = Vector2.new(input.Position.X - framePos.X, input.Position.Y - framePos.Y)
+        local fp = MainFrame.AbsolutePosition
+        dragOffset = Vector2.new(i.Position.X - fp.X, i.Position.Y - fp.Y)
     end
 end)
-MainFrame.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+MainFrame.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
         isDragging = false
         local pos = MainFrame.Position
-        config.pos = {x = pos.X.Scale, y = pos.Y.Scale}
-        saveConfig()
+        cfg.pos = {x = pos.X.Scale, y = pos.Y.Scale}
+        saveCfg()
     end
 end)
-local dragConnection = UserInputService.InputChanged:Connect(function(input)
-    if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y)
+local dragConn = UserInputService.InputChanged:Connect(function(i)
+    if isDragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        MainFrame.Position = UDim2.new(0, i.Position.X - dragOffset.X, 0, i.Position.Y - dragOffset.Y)
     end
 end)
-table.insert(_G.HubObjects, dragConnection)
+table.insert(_G.HubObjects, dragConn)
 
 -- Вкладки
 local tabFrame = Instance.new("Frame")
-tabFrame.Size = UDim2.new(1,0,0,36 * scale)
-tabFrame.Position = UDim2.new(0,0,0,40 * scale)
+tabFrame.Size = UDim2.new(1,0,0,36*scale)
+tabFrame.Position = UDim2.new(0,0,0,40*scale)
 tabFrame.BackgroundTransparency = 1
 tabFrame.Parent = MainFrame
 table.insert(_G.HubObjects, tabFrame)
@@ -249,10 +234,9 @@ tabMain.Position = UDim2.new(0,0,0,0)
 tabBattle.Position = UDim2.new(0.33,0,0,0)
 tabPlayers.Position = UDim2.new(0.66,0,0,0)
 
--- Скролл-контейнер
 local ScrollFrame = Instance.new("ScrollingFrame")
-ScrollFrame.Size = UDim2.new(1,0,1,-76 * scale)
-ScrollFrame.Position = UDim2.new(0,0,0,76 * scale)
+ScrollFrame.Size = UDim2.new(1,0,1,-76*scale)
+ScrollFrame.Position = UDim2.new(0,0,0,76*scale)
 ScrollFrame.BackgroundTransparency = 1
 ScrollFrame.CanvasSize = UDim2.new(0,0,0,0)
 ScrollFrame.ScrollBarThickness = isMobile and 10 or 6
@@ -268,12 +252,12 @@ table.insert(_G.HubObjects, UIListLayout)
 
 local function updateMainCanvas()
     task.wait(0.05)
-    ScrollFrame.CanvasSize = UDim2.new(0,0,0, UIListLayout.AbsoluteContentSize.Y + 30 * scale)
+    ScrollFrame.CanvasSize = UDim2.new(0,0,0, UIListLayout.AbsoluteContentSize.Y + 30*scale)
 end
 UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateMainCanvas)
 coroutine.wrap(updateMainCanvas)()
 
--- ================= СИСТЕМА ГОРЯЧИХ КЛАВИШ =================
+-- ================= СИСТЕМА КЛАВИШ =================
 local hotkeyFunctions = {}
 local functionStates = {}
 local waitingForKey = nil
@@ -300,17 +284,16 @@ local function toggleFunctionByName(funcName)
     if ref then
         if functionStates[funcName] then
             ref.toggleFrame.BackgroundColor3 = Color3.fromRGB(50,200,50)
-            ref.toggleCircle.Position = UDim2.new(0, toggleSize - circleSize + 2, 0.5, -circleSize/2)
+            ref.toggleCircle.Position = UDim2.new(0, tw - cs + 2, 0.5, -cs/2)
         else
             ref.toggleFrame.BackgroundColor3 = Color3.fromRGB(120,120,120)
-            ref.toggleCircle.Position = UDim2.new(0,2,0.5,-circleSize/2)
+            ref.toggleCircle.Position = UDim2.new(0,2,0.5,-cs/2)
         end
     end
     if toggleCallbacks[funcName] then toggleCallbacks[funcName](functionStates[funcName]) end
-    saveConfig()
+    saveCfg()
 end
 
--- Единый обработчик ввода
 local inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     local key = input.KeyCode
     if key == Enum.KeyCode.Unknown then return end
@@ -342,11 +325,11 @@ local inputConnection = UserInputService.InputBegan:Connect(function(input, game
 
     if key == Enum.KeyCode.M then
         MainFrame.Visible = not MainFrame.Visible
-        coroutine.wrap(function() showNotification(3) end)()
+        coroutine.wrap(function() showNotif(3) end)()
         return
     end
 
-    if infiniteJumpEnabled and key == Enum.KeyCode.Space and not gameProcessed then
+    if jump and key == Enum.KeyCode.Space and not gameProcessed then
         local char = LocalPlayer.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
             char.HumanoidRootPart.Velocity = Vector3.new(char.HumanoidRootPart.Velocity.X, 60, char.HumanoidRootPart.Velocity.Z)
@@ -355,189 +338,189 @@ local inputConnection = UserInputService.InputBegan:Connect(function(input, game
 end)
 table.insert(_G.HubObjects, inputConnection)
 
--- ================= ФУНКЦИИ СОЗДАНИЯ ЭЛЕМЕНТОВ =================
-local function createToggleWithHotkey(labelText, funcName, defaultKey, callback)
+-- ================= ВИДЖЕТЫ =================
+local function createToggle(text, funcName, defaultKey, callback)
     local state = functionStates[funcName] or false
     functionStates[funcName] = state
     toggleCallbacks[funcName] = callback
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1,-10 * scale,0,itemHeight)
+    frame.Size = UDim2.new(1,-10*scale,0,ih)
     frame.BackgroundTransparency = 1
     frame.ZIndex = 999
     frame.Parent = ScrollFrame
     table.insert(_G.HubObjects, frame)
 
-    local topFrame = Instance.new("Frame")
-    topFrame.Size = UDim2.new(1,0,0,itemHeight - 30 * scale)
-    topFrame.BackgroundTransparency = 1
-    topFrame.Parent = frame
-    table.insert(_G.HubObjects, topFrame)
+    local top = Instance.new("Frame")
+    top.Size = UDim2.new(1,0,0,ih-30*scale)
+    top.BackgroundTransparency = 1
+    top.Parent = frame
+    table.insert(_G.HubObjects, top)
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.55,0,1,0)
-    label.BackgroundTransparency = 1
-    label.Text = labelText
-    label.TextColor3 = Color3.fromRGB(255,255,255)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextScaled = true
-    label.Font = Enum.Font.SourceSans
-    label.ZIndex = 999
-    label.Parent = topFrame
-    table.insert(_G.HubObjects, label)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.55,0,1,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(255,255,255)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSans
+    lbl.ZIndex = 999
+    lbl.Parent = top
+    table.insert(_G.HubObjects, lbl)
 
-    local toggleFrame = Instance.new("Frame")
-    toggleFrame.Size = UDim2.new(0, toggleSize, 0, toggleHeight)
-    toggleFrame.Position = UDim2.new(1, -(toggleSize + 5 * scale), 0.5, -toggleHeight/2)
-    toggleFrame.BackgroundColor3 = Color3.fromRGB(120,120,120)
-    toggleFrame.BackgroundTransparency = 0.3
-    toggleFrame.BorderSizePixel = 0
-    toggleFrame.ZIndex = 999
-    toggleFrame.Parent = topFrame
-    table.insert(_G.HubObjects, toggleFrame)
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(1,0)
-    toggleCorner.Parent = toggleFrame
-    table.insert(_G.HubObjects, toggleCorner)
+    local togFr = Instance.new("Frame")
+    togFr.Size = UDim2.new(0,tw,0,th)
+    togFr.Position = UDim2.new(1,-tw-5*scale,0.5,-th/2)
+    togFr.BackgroundColor3 = Color3.fromRGB(120,120,120)
+    togFr.BackgroundTransparency = 0.3
+    togFr.BorderSizePixel = 0
+    togFr.ZIndex = 999
+    togFr.Parent = top
+    table.insert(_G.HubObjects, togFr)
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(1,0)
+    tc.Parent = togFr
+    table.insert(_G.HubObjects, tc)
 
-    local toggleCircle = Instance.new("Frame")
-    toggleCircle.Size = UDim2.new(0, circleSize, 0, circleSize)
-    toggleCircle.Position = UDim2.new(0,2,0.5,-circleSize/2)
-    toggleCircle.BackgroundColor3 = Color3.fromRGB(255,255,255)
-    toggleCircle.BackgroundTransparency = 0.2
-    toggleCircle.BorderSizePixel = 0
-    toggleCircle.ZIndex = 999
-    toggleCircle.Parent = toggleFrame
-    table.insert(_G.HubObjects, toggleCircle)
-    local circleCorner = Instance.new("UICorner")
-    circleCorner.CornerRadius = UDim.new(1,0)
-    circleCorner.Parent = toggleCircle
-    table.insert(_G.HubObjects, circleCorner)
+    local togCi = Instance.new("Frame")
+    togCi.Size = UDim2.new(0,cs,0,cs)
+    togCi.Position = UDim2.new(0,2,0.5,-cs/2)
+    togCi.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    togCi.BackgroundTransparency = 0.2
+    togCi.BorderSizePixel = 0
+    togCi.ZIndex = 999
+    togCi.Parent = togFr
+    table.insert(_G.HubObjects, togCi)
+    local cc = Instance.new("UICorner")
+    cc.CornerRadius = UDim.new(1,0)
+    cc.Parent = togCi
+    table.insert(_G.HubObjects, cc)
 
-    toggleRefs[funcName] = {toggleFrame = toggleFrame, toggleCircle = toggleCircle}
+    toggleRefs[funcName] = {toggleFrame = togFr, toggleCircle = togCi}
 
     local function updateToggle()
         if state then
-            toggleFrame.BackgroundColor3 = Color3.fromRGB(50,200,50)
-            toggleCircle.Position = UDim2.new(0, toggleSize - circleSize + 2, 0.5, -circleSize/2)
+            togFr.BackgroundColor3 = Color3.fromRGB(50,200,50)
+            togCi.Position = UDim2.new(0, tw - cs + 2, 0.5, -cs/2)
         else
-            toggleFrame.BackgroundColor3 = Color3.fromRGB(120,120,120)
-            toggleCircle.Position = UDim2.new(0,2,0.5,-circleSize/2)
+            togFr.BackgroundColor3 = Color3.fromRGB(120,120,120)
+            togCi.Position = UDim2.new(0,2,0.5,-cs/2)
         end
     end
     updateToggle()
 
-    toggleFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    togFr.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
             state = not state
             functionStates[funcName] = state
             updateToggle()
             callback(state)
-            saveConfig()
+            saveCfg()
         end
     end)
 
-    local bottomFrame = Instance.new("Frame")
-    bottomFrame.Size = UDim2.new(1,0,0,30 * scale)
-    bottomFrame.Position = UDim2.new(0,0,0,itemHeight - 30 * scale)
-    bottomFrame.BackgroundTransparency = 1
-    bottomFrame.Parent = frame
-    table.insert(_G.HubObjects, bottomFrame)
+    local bot = Instance.new("Frame")
+    bot.Size = UDim2.new(1,0,0,30*scale)
+    bot.Position = UDim2.new(0,0,0,ih-30*scale)
+    bot.BackgroundTransparency = 1
+    bot.Parent = frame
+    table.insert(_G.HubObjects, bot)
 
-    local keyLabel = Instance.new("TextLabel")
-    keyLabel.Size = UDim2.new(0.5,0,1,0)
-    keyLabel.BackgroundTransparency = 1
-    keyLabel.Text = "Клавиша: " .. (defaultKey and tostring(defaultKey):match("KeyCode%.(.*)") or "None")
-    keyLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    keyLabel.TextXAlignment = Enum.TextXAlignment.Left
-    keyLabel.TextScaled = true
-    keyLabel.Font = Enum.Font.SourceSans
-    keyLabel.ZIndex = 999
-    keyLabel.Parent = bottomFrame
-    table.insert(_G.HubObjects, keyLabel)
-    toggleRefs[funcName].keyLabel = keyLabel
+    local keyLbl = Instance.new("TextLabel")
+    keyLbl.Size = UDim2.new(0.5,0,1,0)
+    keyLbl.BackgroundTransparency = 1
+    keyLbl.Text = "Клавиша: " .. (defaultKey and tostring(defaultKey):match("KeyCode%.(.*)") or "None")
+    keyLbl.TextColor3 = Color3.fromRGB(200,200,200)
+    keyLbl.TextXAlignment = Enum.TextXAlignment.Left
+    keyLbl.TextScaled = true
+    keyLbl.Font = Enum.Font.SourceSans
+    keyLbl.ZIndex = 999
+    keyLbl.Parent = bot
+    table.insert(_G.HubObjects, keyLbl)
+    toggleRefs[funcName].keyLabel = keyLbl
 
-    local setKeyButton = Instance.new("TextButton")
-    setKeyButton.Size = UDim2.new(0.4,0,1,0)
-    setKeyButton.Position = UDim2.new(0.55,0,0,0)
-    setKeyButton.BackgroundColor3 = Color3.fromRGB(60,60,60)
-    setKeyButton.TextColor3 = Color3.fromRGB(255,255,255)
-    setKeyButton.Text = "Назначить"
-    setKeyButton.TextScaled = true
-    setKeyButton.Font = Enum.Font.SourceSans
-    setKeyButton.ZIndex = 999
-    setKeyButton.Parent = bottomFrame
-    table.insert(_G.HubObjects, setKeyButton)
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0,4)
-    btnCorner.Parent = setKeyButton
-    table.insert(_G.HubObjects, btnCorner)
+    local setBtn = Instance.new("TextButton")
+    setBtn.Size = UDim2.new(0.4,0,1,0)
+    setBtn.Position = UDim2.new(0.55,0,0,0)
+    setBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    setBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    setBtn.Text = "Назначить"
+    setBtn.TextScaled = true
+    setBtn.Font = Enum.Font.SourceSans
+    setBtn.ZIndex = 999
+    setBtn.Parent = bot
+    table.insert(_G.HubObjects, setBtn)
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(0,4)
+    bc.Parent = setBtn
+    table.insert(_G.HubObjects, bc)
 
-    setKeyButton.MouseButton1Click:Connect(function()
+    setBtn.MouseButton1Click:Connect(function()
         waitingForKey = funcName
-        keyLabel.Text = "Нажмите любую клавишу... (Escape - отмена)"
+        keyLbl.Text = "Нажмите любую клавишу... (Escape - отмена)"
     end)
 
     if defaultKey then setHotkey(funcName, defaultKey) end
     return frame
 end
 
-local function createSlider(labelText, min, max, default, callback)
+local function createSlider(text, min, max, default, callback)
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1,-10 * scale,0,sliderHeight)
+    frame.Size = UDim2.new(1,-10*scale,0,sh)
     frame.BackgroundTransparency = 1
     frame.ZIndex = 999
     frame.Parent = ScrollFrame
     table.insert(_G.HubObjects, frame)
 
-    local topLine = Instance.new("Frame")
-    topLine.Size = UDim2.new(1,0,0,25 * scale)
-    topLine.BackgroundTransparency = 1
-    topLine.Parent = frame
-    table.insert(_G.HubObjects, topLine)
+    local top = Instance.new("Frame")
+    top.Size = UDim2.new(1,0,0,25*scale)
+    top.BackgroundTransparency = 1
+    top.Parent = frame
+    table.insert(_G.HubObjects, top)
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.5,0,1,0)
-    label.BackgroundTransparency = 1
-    label.Text = labelText
-    label.TextColor3 = Color3.fromRGB(255,255,255)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextScaled = true
-    label.Font = Enum.Font.SourceSans
-    label.ZIndex = 999
-    label.Parent = topLine
-    table.insert(_G.HubObjects, label)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.5,0,1,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(255,255,255)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSans
+    lbl.ZIndex = 999
+    lbl.Parent = top
+    table.insert(_G.HubObjects, lbl)
 
-    local valueBox = Instance.new("TextBox")
-    valueBox.Size = UDim2.new(0.25,0,1,0)
-    valueBox.Position = UDim2.new(0.7,0,0,0)
-    valueBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
-    valueBox.TextColor3 = Color3.fromRGB(255,255,255)
-    valueBox.Text = tostring(default)
-    valueBox.TextScaled = true
-    valueBox.Font = Enum.Font.SourceSans
-    valueBox.ClearTextOnFocus = false
-    valueBox.ZIndex = 999
-    valueBox.Parent = topLine
-    table.insert(_G.HubObjects, valueBox)
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0,4)
-    boxCorner.Parent = valueBox
-    table.insert(_G.HubObjects, boxCorner)
+    local valBox = Instance.new("TextBox")
+    valBox.Size = UDim2.new(0.25,0,1,0)
+    valBox.Position = UDim2.new(0.7,0,0,0)
+    valBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    valBox.TextColor3 = Color3.fromRGB(255,255,255)
+    valBox.Text = tostring(default)
+    valBox.TextScaled = true
+    valBox.Font = Enum.Font.SourceSans
+    valBox.ClearTextOnFocus = false
+    valBox.ZIndex = 999
+    valBox.Parent = top
+    table.insert(_G.HubObjects, valBox)
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(0,4)
+    bc.Parent = valBox
+    table.insert(_G.HubObjects, bc)
 
-    local sliderFrame = Instance.new("Frame")
-    sliderFrame.Size = UDim2.new(1,0,0.35 * scale,0)
-    sliderFrame.Position = UDim2.new(0,0,0,30 * scale)
-    sliderFrame.BackgroundColor3 = Color3.fromRGB(100,100,100)
-    sliderFrame.BackgroundTransparency = 0.4
-    sliderFrame.BorderSizePixel = 0
-    sliderFrame.ZIndex = 999
-    sliderFrame.Parent = frame
-    table.insert(_G.HubObjects, sliderFrame)
-    local sliderCorner = Instance.new("UICorner")
-    sliderCorner.CornerRadius = UDim.new(1,0)
-    sliderCorner.Parent = sliderFrame
-    table.insert(_G.HubObjects, sliderCorner)
+    local slFr = Instance.new("Frame")
+    slFr.Size = UDim2.new(1,0,0.35*scale,0)
+    slFr.Position = UDim2.new(0,0,0,30*scale)
+    slFr.BackgroundColor3 = Color3.fromRGB(100,100,100)
+    slFr.BackgroundTransparency = 0.4
+    slFr.BorderSizePixel = 0
+    slFr.ZIndex = 999
+    slFr.Parent = frame
+    table.insert(_G.HubObjects, slFr)
+    local sc = Instance.new("UICorner")
+    sc.CornerRadius = UDim.new(1,0)
+    sc.Parent = slFr
+    table.insert(_G.HubObjects, sc)
 
     local fill = Instance.new("Frame")
     fill.Size = UDim2.new((default-min)/(max-min),0,1,0)
@@ -545,26 +528,26 @@ local function createSlider(labelText, min, max, default, callback)
     fill.BackgroundTransparency = 0.2
     fill.BorderSizePixel = 0
     fill.ZIndex = 999
-    fill.Parent = sliderFrame
+    fill.Parent = slFr
     table.insert(_G.HubObjects, fill)
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(1,0)
-    fillCorner.Parent = fill
-    table.insert(_G.HubObjects, fillCorner)
+    local fc = Instance.new("UICorner")
+    fc.CornerRadius = UDim.new(1,0)
+    fc.Parent = fill
+    table.insert(_G.HubObjects, fc)
 
     local handle = Instance.new("Frame")
-    handle.Size = UDim2.new(0, circleSize, 0, circleSize)
-    handle.Position = UDim2.new((default-min)/(max-min), -circleSize/2, 0.5, -circleSize/2)
+    handle.Size = UDim2.new(0,cs,0,cs)
+    handle.Position = UDim2.new((default-min)/(max-min), -cs/2, 0.5, -cs/2)
     handle.BackgroundColor3 = Color3.fromRGB(255,255,255)
     handle.BackgroundTransparency = 0.2
     handle.BorderSizePixel = 0
     handle.ZIndex = 999
-    handle.Parent = sliderFrame
+    handle.Parent = slFr
     table.insert(_G.HubObjects, handle)
-    local handleCorner = Instance.new("UICorner")
-    handleCorner.CornerRadius = UDim.new(1,0)
-    handleCorner.Parent = handle
-    table.insert(_G.HubObjects, handleCorner)
+    local hc = Instance.new("UICorner")
+    hc.CornerRadius = UDim.new(1,0)
+    hc.Parent = handle
+    table.insert(_G.HubObjects, hc)
 
     local dragging = false
     local value = default
@@ -573,43 +556,42 @@ local function createSlider(labelText, min, max, default, callback)
         value = math.clamp(val, min, max)
         local percent = (value - min) / (max - min)
         fill.Size = UDim2.new(percent,0,1,0)
-        handle.Position = UDim2.new(percent, -circleSize/2, 0.5, -circleSize/2)
-        valueBox.Text = string.format("%.2f", value)
+        handle.Position = UDim2.new(percent, -cs/2, 0.5, -cs/2)
+        valBox.Text = string.format("%.2f", value)
         callback(value)
-        saveConfig()
+        saveCfg()
     end
 
-    valueBox.FocusLost:Connect(function(enterPressed)
+    valBox.FocusLost:Connect(function(enterPressed)
         if enterPressed then
-            local num = tonumber(valueBox.Text)
-            if num then updateSlider(num) else valueBox.Text = tostring(value) end
+            local num = tonumber(valBox.Text)
+            if num then updateSlider(num) else valBox.Text = tostring(value) end
         end
     end)
 
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    handle.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
             dragging = true
         end
     end)
-    handle.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    handle.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
-    sliderFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            local percent = math.clamp((input.Position.X - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
+    slFr.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            local percent = math.clamp((i.Position.X - slFr.AbsolutePosition.X) / slFr.AbsoluteSize.X, 0, 1)
             updateSlider(min + percent * (max - min))
         end
     end)
-    local sliderMoveConnection = UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local pos = input.Position.X
-            local percent = math.clamp((pos - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
+    local sliderMove = UserInputService.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local percent = math.clamp((i.Position.X - slFr.AbsolutePosition.X) / slFr.AbsoluteSize.X, 0, 1)
             updateSlider(min + percent * (max - min))
         end
     end)
-    table.insert(_G.HubObjects, sliderMoveConnection)
+    table.insert(_G.HubObjects, sliderMove)
 
     return frame
 end
@@ -627,16 +609,16 @@ local function createTabContainer()
     lay.SortOrder = Enum.SortOrder.LayoutOrder
     lay.Padding = UDim.new(0, isMobile and 12 or 8)
     table.insert(_G.HubObjects, lay)
-    local function updateContSize()
+    local function updateCont()
         task.wait(0.05)
-        cont.Size = UDim2.new(1,0,0,lay.AbsoluteContentSize.Y + 20 * scale)
+        cont.Size = UDim2.new(1,0,0, lay.AbsoluteContentSize.Y + 20*scale)
     end
-    lay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateContSize)
-    coroutine.wrap(updateContSize)()
-    local nameTag = Instance.new("StringValue")
-    nameTag.Name = "TabName"
-    nameTag.Parent = cont
-    table.insert(_G.HubObjects, nameTag)
+    lay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCont)
+    coroutine.wrap(updateCont)()
+    local tag = Instance.new("StringValue")
+    tag.Name = "TabName"
+    tag.Parent = cont
+    table.insert(_G.HubObjects, tag)
     return cont
 end
 
@@ -666,48 +648,57 @@ tabBattle.MouseButton1Click:Connect(function() showTab("Боевые") end)
 tabPlayers.MouseButton1Click:Connect(function() showTab("Игроки") end)
 
 -- ================= ЗАПОЛНЕНИЕ ВКЛАДОК =================
-local function addToMain(item) item.Parent = contMain end
-addToMain(createToggleWithHotkey("Полёт", "Fly", Enum.KeyCode.P, function(state) flyEnabled = state end))
-addToMain(createSlider("Скорость полёта", 0, 1000, flySpeed, function(val) flySpeed = val end))
-addToMain(createToggleWithHotkey("Бесконечный прыжок", "Jump", Enum.KeyCode.L, function(state) infiniteJumpEnabled = state end))
-addToMain(createToggleWithHotkey("Проход сквозь стены", "Noclip", Enum.KeyCode.K, function(state) noclipEnabled = state end))
-addToMain(createSlider("Скорость ходьбы", 0, 1000, walkSpeedValue, function(val)
-    walkSpeedValue = val
+local function addMain(item) item.Parent = contMain end
+local function addBattle(item) item.Parent = contBattle end
+
+addMain(createToggle("Полёт", "Fly", Enum.KeyCode.P, function(s) fly = s end))
+addMain(createSlider("Скорость полёта", 0, 1000, flySpd, function(v) flySpd = v end))
+addMain(createToggle("Бесконечный прыжок", "Jump", Enum.KeyCode.L, function(s) jump = s end))
+addMain(createToggle("Проход сквозь стены", "Noclip", Enum.KeyCode.K, function(s) noclip = s end))
+addMain(createSlider("Скорость ходьбы", 0, 1000, walk, function(v)
+    walk = v
     local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walkSpeedValue end
-end))
--- НОВЫЙ СЛАЙДЕР ДЛЯ РАЗМЕРА ПЕРСОНАЖА
-addToMain(createSlider("Размер персонажа", 0.5, 3.0, playerScale, function(val)
-    applyPlayerScale(val)
+    if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walk end
 end))
 
-local function addToBattle(item) item.Parent = contBattle end
-addToBattle(createToggleWithHotkey("Аимбот", "Aim", Enum.KeyCode.J, function(state) aimbotEnabled = state end))
-addToBattle(createToggleWithHotkey("ESP", "ESP", Enum.KeyCode.H, function(state) espEnabled = state end))
-addToBattle(createToggleWithHotkey("Невидимость", "Inv", Enum.KeyCode.Y, function(state)
-    invisibleEnabled = state
+-- ИЗМЕНЕНИЕ РАЗМЕРА (ИСПРАВЛЕННО)
+addMain(createSlider("Размер персонажа", 0.5, 3.0, charScale, function(v)
+    charScale = v
+    cfg.scale = v
+    saveCfg()
+    local char = LocalPlayer.Character
+    if char then
+        applyScale(char, v)
+    end
+end))
+
+addBattle(createToggle("Аимбот", "Aim", Enum.KeyCode.J, function(s) aim = s end))
+addBattle(createToggle("ESP", "ESP", Enum.KeyCode.H, function(s) esp = s end))
+addBattle(createToggle("Невидимость", "Inv", Enum.KeyCode.Y, function(s)
+    inv = s
     local char = LocalPlayer.Character
     if not char then return end
     local humanoid = char:FindFirstChild("Humanoid")
-    if humanoid then humanoid.Visible = not state end
+    if humanoid then humanoid.Visible = not s end
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.Transparency = state and 1 or 0 end
+        if part:IsA("BasePart") then
+            part.Transparency = s and 1 or 0
+        end
     end
 end))
-addToBattle(createToggleWithHotkey("God Mode", "God", Enum.KeyCode.U, function(state)
-    godModeEnabled = state
+addBattle(createToggle("God Mode", "God", Enum.KeyCode.U, function(s)
+    god = s
     local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") and state then
+    if char and char:FindFirstChild("Humanoid") and s then
         char.Humanoid.Health = char.Humanoid.MaxHealth
     end
 end))
 
-local function updatePlayerList()
-    for _, ch in ipairs(contPlayers:GetChildren()) do
-        if ch:IsA("Frame") then ch:Destroy() end
-    end
+-- Игроки
+local function updatePlayers()
+    for _, ch in ipairs(contPlayers:GetChildren()) do if ch:IsA("Frame") then ch:Destroy() end end
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1,0,0,30 * scale)
+    header.Size = UDim2.new(1,0,0,30*scale)
     header.BackgroundTransparency = 1
     header.Text = "👥 Игроки (Телепорт)"
     header.TextColor3 = Color3.fromRGB(255,255,255)
@@ -731,17 +722,17 @@ local function updatePlayerList()
             rc.Parent = row
             table.insert(_G.HubObjects, rc)
 
-            local nameLabel = Instance.new("TextLabel")
-            nameLabel.Size = UDim2.new(0.5,0,1,0)
-            nameLabel.BackgroundTransparency = 1
-            nameLabel.Text = player.Name
-            nameLabel.TextColor3 = Color3.fromRGB(255,255,255)
-            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            nameLabel.TextScaled = true
-            nameLabel.Font = Enum.Font.SourceSans
-            nameLabel.ZIndex = 999
-            nameLabel.Parent = row
-            table.insert(_G.HubObjects, nameLabel)
+            local nameLbl = Instance.new("TextLabel")
+            nameLbl.Size = UDim2.new(0.5,0,1,0)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.Text = player.Name
+            nameLbl.TextColor3 = Color3.fromRGB(255,255,255)
+            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+            nameLbl.TextScaled = true
+            nameLbl.Font = Enum.Font.SourceSans
+            nameLbl.ZIndex = 999
+            nameLbl.Parent = row
+            table.insert(_G.HubObjects, nameLbl)
 
             local tpBtn = Instance.new("TextButton")
             tpBtn.Size = UDim2.new(0.35,0,0.8,0)
@@ -754,10 +745,10 @@ local function updatePlayerList()
             tpBtn.ZIndex = 999
             tpBtn.Parent = row
             table.insert(_G.HubObjects, tpBtn)
-            local tpCorner = Instance.new("UICorner")
-            tpCorner.CornerRadius = UDim.new(0,4)
-            tpCorner.Parent = tpBtn
-            table.insert(_G.HubObjects, tpCorner)
+            local tpc = Instance.new("UICorner")
+            tpc.CornerRadius = UDim.new(0,4)
+            tpc.Parent = tpBtn
+            table.insert(_G.HubObjects, tpc)
             tpBtn.MouseButton1Click:Connect(function()
                 if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                     local pos = player.Character.HumanoidRootPart.Position
@@ -770,30 +761,29 @@ local function updatePlayerList()
         end
     end
     task.wait(0.05)
-    local totalHeight = 0
+    local totalH = 0
     for _, ch in ipairs(contPlayers:GetChildren()) do
-        if ch:IsA("Frame") then totalHeight = totalHeight + ch.Size.Y.Offset end
+        if ch:IsA("Frame") then totalH = totalH + ch.Size.Y.Offset end
     end
-    contPlayers.Size = UDim2.new(1,0,0,totalHeight + 40 * scale)
+    contPlayers.Size = UDim2.new(1,0,0,totalH + 40*scale)
 end
 
-updatePlayerList()
-local playerAddedConn = Players.PlayerAdded:Connect(updatePlayerList)
-local playerRemovedConn = Players.PlayerRemoving:Connect(updatePlayerList)
-table.insert(_G.HubObjects, playerAddedConn)
-table.insert(_G.HubObjects, playerRemovedConn)
+updatePlayers()
+Players.PlayerAdded:Connect(updatePlayers)
+Players.PlayerRemoving:Connect(updatePlayers)
 
 -- ================= ЛОГИКА ФУНКЦИЙ =================
-local flyBodyVelocity = nil
-local espObjects = {}
+local flyBV = nil
+local espObjs = {}
 
-local flyConnection = RunService.Heartbeat:Connect(function()
-    if flyEnabled then
+-- Полёт
+local flyConn = RunService.Heartbeat:Connect(function()
+    if fly then
         local char = LocalPlayer.Character
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not hrp or not humanoid then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hrp or not hum then return end
 
         local move = Vector3.new(0,0,0)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Vector3.new(0,0,-1) end
@@ -803,34 +793,32 @@ local flyConnection = RunService.Heartbeat:Connect(function()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move = move + Vector3.new(0,-1,0) end
 
-        if not flyBodyVelocity or flyBodyVelocity.Parent ~= hrp then
-            flyBodyVelocity = Instance.new("BodyVelocity")
-            flyBodyVelocity.MaxForce = Vector3.new(1e5,1e5,1e5)
-            flyBodyVelocity.Parent = hrp
-            table.insert(_G.HubObjects, flyBodyVelocity)
+        if not flyBV or flyBV.Parent ~= hrp then
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.MaxForce = Vector3.new(1e5,1e5,1e5)
+            flyBV.Parent = hrp
+            table.insert(_G.HubObjects, flyBV)
         end
-        local camera = workspace.CurrentCamera
-        if camera then
-            local forward, right, up = camera.CFrame.LookVector, camera.CFrame.RightVector, camera.CFrame.UpVector
-            local vel = forward * -move.Z + right * move.X + up * move.Y
-            flyBodyVelocity.Velocity = vel * flySpeed
+        local cam = workspace.CurrentCamera
+        if cam then
+            local f,r,u = cam.CFrame.LookVector, cam.CFrame.RightVector, cam.CFrame.UpVector
+            local vel = f * -move.Z + r * move.X + u * move.Y
+            flyBV.Velocity = vel * flySpd
         else
-            flyBodyVelocity.Velocity = move * flySpeed
+            flyBV.Velocity = move * flySpd
         end
-        humanoid.PlatformStand = true
+        hum.PlatformStand = true
     else
-        if flyBodyVelocity then
-            flyBodyVelocity:Destroy()
-            flyBodyVelocity = nil
-        end
+        if flyBV then flyBV:Destroy(); flyBV = nil end
         local char = LocalPlayer.Character
         if char and char:FindFirstChild("Humanoid") then char.Humanoid.PlatformStand = false end
     end
 end)
-table.insert(_G.HubObjects, flyConnection)
+table.insert(_G.HubObjects, flyConn)
 
-local noclipConnection = RunService.Heartbeat:Connect(function()
-    if noclipEnabled then
+-- Ноклип
+local noclipConn = RunService.Heartbeat:Connect(function()
+    if noclip then
         local char = LocalPlayer.Character
         if char then
             for _, part in ipairs(char:GetDescendants()) do
@@ -839,33 +827,40 @@ local noclipConnection = RunService.Heartbeat:Connect(function()
         end
     end
 end)
-table.insert(_G.HubObjects, noclipConnection)
+table.insert(_G.HubObjects, noclipConn)
 
+-- Скорость ходьбы
 local function applyWalkSpeed()
     local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walkSpeedValue end
+    if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walk end
 end
-local charAddedConn = LocalPlayer.CharacterAdded:Connect(applyWalkSpeed)
-table.insert(_G.HubObjects, charAddedConn)
+local charAddedWalk = LocalPlayer.CharacterAdded:Connect(function(ch)
+    task.wait(0.1)
+    applyWalkSpeed()
+    if charScale ~= 1 then
+        applyScale(ch, charScale)
+    end
+end)
+table.insert(_G.HubObjects, charAddedWalk)
 applyWalkSpeed()
 
-local aimbotConnection = RunService.Heartbeat:Connect(function()
-    if aimbotEnabled then
-        local camera = workspace.CurrentCamera
-        if not camera then return end
+-- Аимбот
+local aimConn = RunService.Heartbeat:Connect(function()
+    if aim then
+        local cam = workspace.CurrentCamera
+        if not cam then return end
         local char = LocalPlayer.Character
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
-
         local closestDist = math.huge
         local closestHead = nil
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local targetChar = player.Character
                 if targetChar then
-                    local humanoid = targetChar:FindFirstChild("Humanoid")
-                    if humanoid and humanoid.Health > 0 then
+                    local hum = targetChar:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
                         local head = targetChar:FindFirstChild("Head")
                         if head then
                             local dist = (head.Position - hrp.Position).Magnitude
@@ -879,19 +874,20 @@ local aimbotConnection = RunService.Heartbeat:Connect(function()
             end
         end
         if closestHead then
-            camera.CFrame = CFrame.new(camera.CFrame.Position, closestHead.Position)
+            cam.CFrame = CFrame.new(cam.CFrame.Position, closestHead.Position)
         end
     end
 end)
-table.insert(_G.HubObjects, aimbotConnection)
+table.insert(_G.HubObjects, aimConn)
 
-local espConnection = RunService.Heartbeat:Connect(function()
-    if espEnabled then
+-- ESP
+local espConn = RunService.Heartbeat:Connect(function()
+    if esp then
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local char = player.Character
                 if char then
-                    if not espObjects[player] then
+                    if not espObjs[player] then
                         local box = Instance.new("BoxHandleAdornment")
                         box.Size = Vector3.new(4,5,1.5)
                         box.Adornee = char:FindFirstChild("HumanoidRootPart") or char
@@ -900,65 +896,67 @@ local espConnection = RunService.Heartbeat:Connect(function()
                         box.AlwaysOnTop = true
                         box.ZIndex = 10
                         box.Parent = char
-                        espObjects[player] = box
+                        espObjs[player] = box
                         table.insert(_G.HubObjects, box)
                     end
                 else
-                    if espObjects[player] then
-                        espObjects[player]:Destroy()
-                        espObjects[player] = nil
+                    if espObjs[player] then
+                        espObjs[player]:Destroy()
+                        espObjs[player] = nil
                     end
                 end
             end
         end
-        for player, box in pairs(espObjects) do
+        for player, box in pairs(espObjs) do
             if not Players:FindFirstChild(player.Name) then
                 box:Destroy()
-                espObjects[player] = nil
+                espObjs[player] = nil
             end
         end
     else
-        for _, box in pairs(espObjects) do
+        for _, box in pairs(espObjs) do
             box:Destroy()
         end
-        espObjects = {}
+        espObjs = {}
     end
 end)
-table.insert(_G.HubObjects, espConnection)
+table.insert(_G.HubObjects, espConn)
 
-local godModeConnection = RunService.Heartbeat:Connect(function()
-    if godModeEnabled then
+-- God Mode
+local godConn = RunService.Heartbeat:Connect(function()
+    if god then
         local char = LocalPlayer.Character
         if char and char:FindFirstChild("Humanoid") then
             char.Humanoid.Health = char.Humanoid.MaxHealth
         end
     end
 end)
-table.insert(_G.HubObjects, godModeConnection)
+table.insert(_G.HubObjects, godConn)
 
-local godCharAddedConn = LocalPlayer.CharacterAdded:Connect(function(char)
+local godCharAdded = LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.5)
-    if godModeEnabled and char and char:FindFirstChild("Humanoid") then
+    if god and char and char:FindFirstChild("Humanoid") then
         char.Humanoid.Health = char.Humanoid.MaxHealth
     end
     applyWalkSpeed()
-    applyPlayerScale(playerScale) -- применяем размер при появлении персонажа
+    if charScale ~= 1 then
+        applyScale(char, charScale)
+    end
 end)
-table.insert(_G.HubObjects, godCharAddedConn)
+table.insert(_G.HubObjects, godCharAdded)
 
--- ================= ПРИМЕНЕНИЕ СОХРАНЁННЫХ СОСТОЯНИЙ =================
-for funcName, state in pairs(functionStates) do
-    if state then toggleFunctionByName(funcName) end
+-- Применяем масштаб при загрузке
+task.wait(0.5)
+if charScale ~= 1 then
+    local char = LocalPlayer.Character
+    if char then
+        applyScale(char, charScale)
+    end
 end
 
--- Применяем размер персонажа при загрузке
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    applyPlayerScale(playerScale)
-end)
-if LocalPlayer.Character then
-    task.wait(0.5)
-    applyPlayerScale(playerScale)
+-- Применяем сохранённые состояния
+for fn, st in pairs(functionStates) do
+    if st then toggleFunctionByName(fn) end
 end
 
 showTab("Основные")
@@ -967,9 +965,9 @@ showTab("Основные")
 function Hub:Destroy()
     if _G.HubObjects then
         for _, obj in ipairs(_G.HubObjects) do
-            pcall(function() 
-                if obj:IsA("RBXScriptConnection") then obj:Disconnect() 
-                else obj:Destroy() end 
+            pcall(function()
+                if obj:IsA("RBXScriptConnection") then obj:Disconnect()
+                else obj:Destroy() end
             end)
         end
         _G.HubObjects = nil
@@ -978,4 +976,4 @@ function Hub:Destroy()
     _G.HubScript = nil
 end
 
-print("Energy Hub загружен! M – меню. Платформа: " .. (isMobile and "Телефон" or "ПК"))
+print("Energy Hub загружен! M – меню. Размер персонажа корректно работает с HipHeight.")
